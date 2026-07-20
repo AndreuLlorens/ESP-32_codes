@@ -1,0 +1,79 @@
+#include<stdio.h>
+#include<stdbool.h>
+
+#include"freertos/FreeRTOS.h"
+#include"freertos/task.h"
+#include"freertos/queue.h"
+#include"esp_log.h"
+
+
+#define HUMITURE_READ_TASK_INTERVAL 3000 // READ EVERY 3 SECONDS
+#define HUMITURE_READ_TASK_PRIORITY 10
+#define QUEUE_LENGTH 10
+
+typedef struct
+{
+    float temperature;
+    float humidity;
+}humiture_t;
+
+
+
+static TaskHandle_t humiture_read_task_handle = NULL;
+
+QueueHandle_t xQueue1 = NULL;
+
+
+
+static void humiture_read_task(void * pvParameters);
+
+
+
+
+
+void app_main(void)
+{
+    humiture_init();
+
+    xTaskCreate(humiture_read_task,"humitrue_read_task",2048,
+    NULL,HUMITURE_READ_TASK_PRIORITY, &humiture_read_task_handle);
+
+    for(;;)
+    {
+        printf("... Main Task Running ...\n");
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
+    }
+}
+
+static void humiture_read_task(void * pvParameters)
+{
+    xQueue1 = xQueueCreate(QUEUE_LENGTH, sizeof(humiture_t));
+    if(xQueue1 == NULL)
+    {
+        ESP_LOGE("HUMITURE_TASK", "ERROR CREATING QUEUE");
+        vTaskDelete(NULL);
+    }
+    
+    humiture_t dates;
+    
+    for(;;)
+    {
+        if(humiture_read(&dates.humidity, &dates.temperature) == false)
+        {
+            dates.humidity = 0.0;
+            dates.temperature = 0.0;
+            ESP_LOGE("HUMITURE_TASK", "ERROR READING HUMITURE SENSOR");
+        }
+
+        ESP_LOGI("HUMITURE_TASK", "T = %.2f  RH = %.2f ", dates.temperature, dates.humidity);
+        
+        if(xQueueSend(xQueue1, &dates, 0 /*portMAX_DELAY*/) != pdPASS) //PORTMAX_DELAY HACE QUE ESPERE HASTA QUE PUEDA ENVIAR, 0 HACE QUE NO ESPERE
+        { //pdPass ES EL VALOR QUE DEVUELVE CUANDO SE ENVIA CORRECTAMENTE si es != ES QUE NO SE ENVIO CORRECTAMENTE
+            ESP_LOGE("HUMITURE_TASK", "ERROR SENDING TO QUEUE");
+        }
+
+        vTaskDelay(HUMITURE_READ_TASK_INTERVAL / portTICK_PERIOD_MS);
+    }
+    vTaskDelete(NULL);
+}
+
